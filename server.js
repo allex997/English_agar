@@ -1,17 +1,30 @@
-// server.js - Стабильный сервер с полной защитой от крашей и поддержкой подсказок
+// server.js
 
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
 
-const phrases = require('./phrases');
-
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
 app.use(express.static(path.join(__dirname, 'public')));
+
+// Безопасная загрузка базы фраз
+let phrases = [];
+try {
+  phrases = require('./phrases');
+} catch (e) {
+  console.warn("Файл phrases.js не найден или содержит ошибку. Инициализированы базовые фразы.");
+  phrases = [
+    { id: '1', en: 'Apple', ru: 'Яблоко' },
+    { id: '2', en: 'Cat', ru: 'Кошка' },
+    { id: '3', en: 'Dog', ru: 'Собака' },
+    { id: '4', en: 'House', ru: 'Дом' },
+    { id: '5', en: 'Water', ru: 'Вода' }
+  ];
+}
 
 const WORLD_WIDTH = 4500;
 const WORLD_HEIGHT = 4500;
@@ -40,10 +53,13 @@ function getRandomColor() {
 }
 
 function getRandomPhrase() {
+  if (!phrases || phrases.length === 0) {
+    return { id: 'default', en: 'Hello', ru: 'Привет' };
+  }
   return phrases[Math.floor(Math.random() * phrases.length)];
 }
 
-function wrapText(text, maxCharsPerLine = 12) {
+function wrapText(text = '', maxCharsPerLine = 12) {
   const words = text.split(' ');
   const lines = [];
   let currentLine = '';
@@ -69,7 +85,7 @@ function getValidSpawnPosition() {
   do {
     x = Math.random() * (WORLD_WIDTH - 300) + 150;
     y = Math.random() * (WORLD_HEIGHT - 300) + 150;
-    tooClose = foodItems.some(f => Math.hypot(x - f.x, y - f.y) < MIN_DIST_BETWEEN_FOOD);
+    tooClose = foodItems.some(f => f && Math.hypot(x - f.x, y - f.y) < MIN_DIST_BETWEEN_FOOD);
     attempts++;
   } while (tooClose && attempts < 100);
 
@@ -77,6 +93,7 @@ function getValidSpawnPosition() {
 }
 
 function createFoodItem(phraseObj, isCorrect = false, forceHintType = 0, forceBiome = false) {
+  const safePhrase = phraseObj || getRandomPhrase();
   let pos = getValidSpawnPosition();
 
   if (forceBiome && audioBiomes.length > 0) {
@@ -87,7 +104,6 @@ function createFoodItem(phraseObj, isCorrect = false, forceHintType = 0, forceBi
     pos.y = randomBiome.y + Math.sin(angle) * dist;
   }
 
-  // Шанс 15% на спавн свободной подсказки на карте (💡 - 1 или 🧭 - 2)
   let hintType = forceHintType;
   if (!isCorrect && hintType === 0 && Math.random() < 0.15) {
     hintType = Math.random() < 0.5 ? 1 : 2;
@@ -97,8 +113,8 @@ function createFoodItem(phraseObj, isCorrect = false, forceHintType = 0, forceBi
 
   return {
     id: 'f_' + Math.random().toString(36).substr(2, 9),
-    phraseData: phraseObj,
-    textLines: wrapText(phraseObj.en),
+    phraseData: safePhrase,
+    textLines: wrapText(safePhrase.en || ''),
     isCorrect: isCorrect,
     hintType: hintType,
     inAudioBiome: inAudioBiome,
@@ -129,7 +145,7 @@ function startSpeedEvent() {
   globalSpeedPhrase = getRandomPhrase();
   roundTimer = 25;
 
-  foodItems = foodItems.filter(f => !f.isCorrect);
+  foodItems = foodItems.filter(f => f && !f.isCorrect);
   addTargetFoodForPlayer(globalSpeedPhrase);
 
   io.emit('eventStarted', {
@@ -188,10 +204,8 @@ function resetGame() {
   io.emit('gameRestarted');
 }
 
-// Первоначальное заполнение
 fillMapWithFood();
 
-// Периодическое событие
 setInterval(() => {
   if (!isGameOver && !isSpeedMode && Object.keys(players).length > 0) {
     startSpeedEvent();
@@ -199,6 +213,7 @@ setInterval(() => {
 }, 60000);
 
 io.on('connection', (socket) => {
+  console.log('Новое подключение:', socket.id);
   const initialPhrase = getRandomPhrase();
   
   players[socket.id] = {
@@ -234,15 +249,14 @@ io.on('connection', (socket) => {
 
   socket.on('playerMove', (target) => {
     const p = players[socket.id];
-    if (!p || isGameOver) return;
+    if (!p || isGameOver || !target) return;
     p.targetX = target.x;
     p.targetY = target.y;
   });
 
-  // Покупка способностей
   socket.on('useAbility', (data) => {
     const p = players[socket.id];
-    if (!p || isGameOver) return;
+    if (!p || isGameOver || !data) return;
 
     if (data.type === 'speed') {
       if (p.hasBoughtSpeed) return;
@@ -259,7 +273,7 @@ io.on('connection', (socket) => {
       const COST = 20;
       if (p.score >= COST) {
         p.score -= COST;
-        const targetFood = foodItems.find(f => f.isCorrect && f.phraseData && f.phraseData.id === (isSpeedMode ? globalSpeedPhrase.id : p.currentPhrase.id));
+        const targetFood = foodItems.find(f => f && f.isCorrect && f.phraseData && f.phraseData.id === (isSpeedMode ? globalSpeedPhrase.id : p.currentPhrase.id));
         if (targetFood) {
           io.to(socket.id).emit('activateLocator', { x: targetFood.x, y: targetFood.y });
           io.to(socket.id).emit('floatingText', { x: p.x, y: p.y, text: "🧭 Локатор активирован!", color: "#a855f7" });
@@ -288,13 +302,11 @@ io.on('connection', (socket) => {
   });
 });
 
-// Безопасный игровой цикл
 setInterval(() => {
   if (isGameOver) return;
 
   const playerList = Object.values(players);
 
-  // Движение и съедение игроков
   playerList.forEach(p => {
     p.x += (p.targetX - p.x) * p.speed;
     p.y += (p.targetY - p.y) * p.speed;
@@ -323,7 +335,6 @@ setInterval(() => {
     });
   });
 
-  // Взаимодействие с шариками и подсказками
   for (let i = foodItems.length - 1; i >= 0; i--) {
     let food = foodItems[i];
     if (!food || !food.phraseData) continue;
@@ -341,7 +352,6 @@ setInterval(() => {
       let dy = p.y - food.y;
       let distance = Math.hypot(dx, dy);
 
-      // Аудио-биомы
       if (food.inAudioBiome) {
         if (distance < food.audioTriggerRadius && !food.audioTriggeredPlayers[p.id]) {
           food.audioTriggeredPlayers[p.id] = true;
@@ -351,20 +361,17 @@ setInterval(() => {
         }
       }
 
-      // Касание шарика
       if (distance < p.radius + food.radius) {
         if (food.hintType === 1 || food.hintType === 2) {
-          // Подбор подсказки с земли
-          const targetFood = foodItems.find(f => f.isCorrect && f.phraseData && f.phraseData.id === (isSpeedMode ? globalSpeedPhrase.id : p.currentPhrase.id));
+          const targetFood = foodItems.find(f => f && f.isCorrect && f.phraseData && f.phraseData.id === (isSpeedMode ? globalSpeedPhrase.id : p.currentPhrase.id));
           if (targetFood) {
             io.to(p.id).emit('activateLocator', { x: targetFood.x, y: targetFood.y });
             io.to(p.id).emit('floatingText', { x: food.x, y: food.y, text: food.hintType === 1 ? "💡 Подсказка найдена!" : "🧭 Локатор найден!", color: "#f59e0b" });
           }
         } else {
-          // Выбор варианта ответа
           let activeTargetPhrase = isSpeedMode ? globalSpeedPhrase : p.currentPhrase;
 
-          if (food.phraseData.id === activeTargetPhrase.id) {
+          if (activeTargetPhrase && food.phraseData.id === activeTargetPhrase.id) {
             p.score += isSpeedMode ? 25 : 10;
             p.radius += 2;
 
@@ -387,7 +394,7 @@ setInterval(() => {
         }
 
         foodEaten = true;
-        break; // Остановка цикла по игрокам для этого шарика
+        break;
       }
     }
 
@@ -399,7 +406,6 @@ setInterval(() => {
   fillMapWithFood();
 }, 1000 / 60);
 
-// Отправка состояния
 setInterval(() => {
   io.emit('gameState', { players, foodItems });
 }, 1000 / 25);
