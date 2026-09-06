@@ -74,6 +74,12 @@ if (btnPlayerRadar) {
   });
 }
 
+if (btnLocator) {
+  btnLocator.addEventListener('click', () => {
+    socket.emit('useAbility', { type: 'locator' });
+  });
+}
+
 function speakEnText(text) {
   if (!('speechSynthesis' in window)) return;
   window.speechSynthesis.cancel();
