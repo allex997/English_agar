@@ -1,4 +1,4 @@
-// server.js
+// server.js - Стабильный сервер с полной защитой от крашей и поддержкой подсказок
 
 const express = require('express');
 const http = require('http');
@@ -87,9 +87,9 @@ function createFoodItem(phraseObj, isCorrect = false, forceHintType = 0, forceBi
     pos.y = randomBiome.y + Math.sin(angle) * dist;
   }
 
-  // Определяем тип подсказки: 0 - обычный, 1 - Подсказка-Стрелка (лампочка), 2 - Подсказка-Зона (компас)
+  // Шанс 15% на спавн свободной подсказки на карте (💡 - 1 или 🧭 - 2)
   let hintType = forceHintType;
-  if (!isCorrect && hintType === 0 && Math.random() < 0.15) { // 15% шанс спавна подсказки
+  if (!isCorrect && hintType === 0 && Math.random() < 0.15) {
     hintType = Math.random() < 0.5 ? 1 : 2;
   }
 
@@ -112,57 +112,6 @@ function createFoodItem(phraseObj, isCorrect = false, forceHintType = 0, forceBi
     vy: inAudioBiome ? 0 : (Math.random() - 0.5) * 1.2
   };
 }
-
-// При поднятии предмета-подсказки или покупке
-socket.on('useAbility', (data) => {
-  const p = players[socket.id];
-  if (!p || isGameOver) return;
-
-  // 1. Покупка / Использование Подсказки "Ускорение" (40 очков)
-  if (data.type === 'speed') {
-    if (p.hasBoughtSpeed) return;
-    if (p.score >= 40) {
-      p.score -= 40;
-      p.hasBoughtSpeed = true;
-      p.speed = 0.16;
-      io.to(socket.id).emit('floatingText', { x: p.x, y: p.y, text: "⚡ Ускорение куплено!", color: "#38bdf8" });
-    } else {
-      io.to(socket.id).emit('floatingText', { x: p.x, y: p.y, text: "Нужно 40 очков!", color: "#ff4b5c" });
-    }
-  } 
-  
-  // 2. Покупка / Использование Локатора зоны ответа (20 очков)
-  else if (data.type === 'locator' || data.type === 'hint2') {
-    const COST = 20;
-    if (p.score >= COST) {
-      p.score -= COST;
-
-      // Ищем ближайший правильный ответ для игрока
-      const targetFood = foodItems.find(f => f.isCorrect && f.phraseData.id === (isSpeedMode ? globalSpeedPhrase.id : p.currentPhrase.id));
-      if (targetFood) {
-        io.to(socket.id).emit('activateLocator', { x: targetFood.x, y: targetFood.y });
-        io.to(socket.id).emit('floatingText', { x: p.x, y: p.y, text: "🧭 Локатор активирован!", color: "#a855f7" });
-      }
-    } else {
-      io.to(socket.id).emit('floatingText', { x: p.x, y: p.y, text: `Нужно ${COST} очков!`, color: "#ff4b5c" });
-    }
-  }
-
-  // 3. Радар игроков (35 очков)
-  else if (data.type === 'radar_player') {
-    const COST = 35;
-    if (p.score >= COST) {
-      let nearestPlayer = Object.values(players).find(other => other.id !== p.id);
-      if (nearestPlayer) {
-        p.score -= COST;
-        io.to(socket.id).emit('activateLocator', { x: nearestPlayer.x, y: nearestPlayer.y });
-        io.to(socket.id).emit('floatingText', { x: p.x, y: p.y, text: "🎯 Игрок найден!", color: "#a855f7" });
-      }
-    } else {
-      io.to(socket.id).emit('floatingText', { x: p.x, y: p.y, text: `Нужно ${COST} очков!`, color: "#ff4b5c" });
-    }
-  }
-});
 
 function fillMapWithFood() {
   while (foodItems.length < MAX_FOOD_COUNT) {
@@ -239,10 +188,10 @@ function resetGame() {
   io.emit('gameRestarted');
 }
 
-// Заполнение карты при старте
+// Первоначальное заполнение
 fillMapWithFood();
 
-// Периодический запуск события "Режим скорости"
+// Периодическое событие
 setInterval(() => {
   if (!isGameOver && !isSpeedMode && Object.keys(players).length > 0) {
     startSpeedEvent();
@@ -290,6 +239,7 @@ io.on('connection', (socket) => {
     p.targetY = target.y;
   });
 
+  // Покупка способностей
   socket.on('useAbility', (data) => {
     const p = players[socket.id];
     if (!p || isGameOver) return;
@@ -305,43 +255,30 @@ io.on('connection', (socket) => {
         io.to(socket.id).emit('floatingText', { x: p.x, y: p.y, text: "Нужно 40 очков!", color: "#ff4b5c" });
       }
     } 
-    else if (data.type === 'radar_player' || data.type === 'locator') {
-      const COST = 35;
-
-      if (p.score < COST) {
-        io.to(socket.id).emit('floatingText', { x: p.x, y: p.y, text: `Нужно ${COST} очков!`, color: "#ff4b5c" });
-        return;
-      }
-
-      let nearestPlayer = null;
-      let minDist = Infinity;
-
-      Object.values(players).forEach(other => {
-        if (other.id !== p.id) {
-          let dist = Math.hypot(p.x - other.x, p.y - other.y);
-          if (dist < minDist) {
-            minDist = dist;
-            nearestPlayer = other;
-          }
-        }
-      });
-
-      if (nearestPlayer) {
+    else if (data.type === 'locator' || data.type === 'hint2') {
+      const COST = 20;
+      if (p.score >= COST) {
         p.score -= COST;
-        io.to(socket.id).emit('activateLocator', { 
-          x: nearestPlayer.x, 
-          y: nearestPlayer.y,
-          label: `Игрок: ${nearestPlayer.name}`
-        });
-
-        io.to(socket.id).emit('floatingText', { 
-          x: p.x, 
-          y: p.y, 
-          text: `🎯 Локация игрока найдена! (-${COST} очков)`, 
-          color: "#a855f7" 
-        });
+        const targetFood = foodItems.find(f => f.isCorrect && f.phraseData && f.phraseData.id === (isSpeedMode ? globalSpeedPhrase.id : p.currentPhrase.id));
+        if (targetFood) {
+          io.to(socket.id).emit('activateLocator', { x: targetFood.x, y: targetFood.y });
+          io.to(socket.id).emit('floatingText', { x: p.x, y: p.y, text: "🧭 Локатор активирован!", color: "#a855f7" });
+        }
       } else {
-        io.to(socket.id).emit('floatingText', { x: p.x, y: p.y, text: "На карте нет других игроков!", color: "#ff4b5c" });
+        io.to(socket.id).emit('floatingText', { x: p.x, y: p.y, text: `Нужно ${COST} очков!`, color: "#ff4b5c" });
+      }
+    }
+    else if (data.type === 'radar_player') {
+      const COST = 35;
+      if (p.score >= COST) {
+        let nearestPlayer = Object.values(players).find(other => other.id !== p.id);
+        if (nearestPlayer) {
+          p.score -= COST;
+          io.to(socket.id).emit('activateLocator', { x: nearestPlayer.x, y: nearestPlayer.y });
+          io.to(socket.id).emit('floatingText', { x: p.x, y: p.y, text: "🎯 Игрок найден!", color: "#a855f7" });
+        }
+      } else {
+        io.to(socket.id).emit('floatingText', { x: p.x, y: p.y, text: `Нужно ${COST} очков!`, color: "#ff4b5c" });
       }
     }
   });
@@ -351,13 +288,13 @@ io.on('connection', (socket) => {
   });
 });
 
-// Игровой цикл (60 FPS)
+// Безопасный игровой цикл
 setInterval(() => {
   if (isGameOver) return;
 
   const playerList = Object.values(players);
 
-  // Движение игроков и столкновения
+  // Движение и съедение игроков
   playerList.forEach(p => {
     p.x += (p.targetX - p.x) * p.speed;
     p.y += (p.targetY - p.y) * p.speed;
@@ -386,10 +323,10 @@ setInterval(() => {
     });
   });
 
-  // Проверка поедания шариков
+  // Взаимодействие с шариками и подсказками
   for (let i = foodItems.length - 1; i >= 0; i--) {
     let food = foodItems[i];
-    if (!food) continue;
+    if (!food || !food.phraseData) continue;
 
     food.x += food.vx;
     food.y += food.vy;
@@ -404,6 +341,7 @@ setInterval(() => {
       let dy = p.y - food.y;
       let distance = Math.hypot(dx, dy);
 
+      // Аудио-биомы
       if (food.inAudioBiome) {
         if (distance < food.audioTriggerRadius && !food.audioTriggeredPlayers[p.id]) {
           food.audioTriggeredPlayers[p.id] = true;
@@ -413,36 +351,44 @@ setInterval(() => {
         }
       }
 
-      // Внутри цикла проверки касаний шариков в server.js:
-    if (distance < p.radius + food.radius) {
-      
-      // Если это найденная на карте ПОДСКАЗКА
-      if (food.hintType === 1) { // Подсказка 💡 (Указывает направление)
-        const targetFood = foodItems.find(f => f.isCorrect && f.phraseData.id === (isSpeedMode ? globalSpeedPhrase.id : p.currentPhrase.id));
-        if (targetFood) {
-          io.to(p.id).emit('activateLocator', { x: targetFood.x, y: targetFood.y });
-          io.to(p.id).emit('floatingText', { x: food.x, y: food.y, text: "💡 Подсказка найдена!", color: "#f59e0b" });
+      // Касание шарика
+      if (distance < p.radius + food.radius) {
+        if (food.hintType === 1 || food.hintType === 2) {
+          // Подбор подсказки с земли
+          const targetFood = foodItems.find(f => f.isCorrect && f.phraseData && f.phraseData.id === (isSpeedMode ? globalSpeedPhrase.id : p.currentPhrase.id));
+          if (targetFood) {
+            io.to(p.id).emit('activateLocator', { x: targetFood.x, y: targetFood.y });
+            io.to(p.id).emit('floatingText', { x: food.x, y: food.y, text: food.hintType === 1 ? "💡 Подсказка найдена!" : "🧭 Локатор найден!", color: "#f59e0b" });
+          }
+        } else {
+          // Выбор варианта ответа
+          let activeTargetPhrase = isSpeedMode ? globalSpeedPhrase : p.currentPhrase;
+
+          if (food.phraseData.id === activeTargetPhrase.id) {
+            p.score += isSpeedMode ? 25 : 10;
+            p.radius += 2;
+
+            io.to(p.id).emit('floatingText', { x: food.x, y: food.y, text: "Верно! +10", color: "#38ef7d" });
+            
+            if (!isSpeedMode) {
+              p.currentPhrase = getRandomPhrase();
+              io.to(p.id).emit('newIndividualPhrase', { phrase: p.currentPhrase });
+              addTargetFoodForPlayer(p.currentPhrase);
+            }
+
+            checkWinCondition(p);
+          } else {
+            p.score = Math.max(0, p.score - 5);
+            p.radius = Math.max(p.baseRadius, p.radius - 1);
+            io.to(p.id).emit('floatingText', { x: food.x, y: food.y, text: "Ошибка! -5", color: "#ff4b5c" });
+
+            foodItems.push(createFoodItem(getRandomPhrase(), false));
+          }
         }
+
         foodEaten = true;
-      } 
-      else if (food.hintType === 2) { // Подсказка 🧭 (Локатор)
-        const targetFood = foodItems.find(f => f.isCorrect && f.phraseData.id === (isSpeedMode ? globalSpeedPhrase.id : p.currentPhrase.id));
-        if (targetFood) {
-          io.to(p.id).emit('activateLocator', { x: targetFood.x, y: targetFood.y });
-          io.to(p.id).emit('floatingText', { x: food.x, y: food.y, text: "🧭 Локатор найден!", color: "#a855f7" });
-        }
-        foodEaten = true;
+        break; // Остановка цикла по игрокам для этого шарика
       }
-      
-      // Если это Обычный ответ (слово)
-      else {
-        let activeTargetPhrase = isSpeedMode ? globalSpeedPhrase : p.currentPhrase;
-        if (food.phraseData.id === activeTargetPhrase.id) {
-          // Правильный ответ...
-        }
-        foodEaten = true;
-      }
-    }
     }
 
     if (foodEaten) {
@@ -453,7 +399,7 @@ setInterval(() => {
   fillMapWithFood();
 }, 1000 / 60);
 
-// Отправка состояния всем клиентам
+// Отправка состояния
 setInterval(() => {
   io.emit('gameState', { players, foodItems });
 }, 1000 / 25);
