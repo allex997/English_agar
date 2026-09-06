@@ -11,18 +11,26 @@ const io = new Server(server);
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Безопасная загрузка базы фраз
+// Безопасный импорт фраз
 let phrases = [];
 try {
-  phrases = require('./phrases');
+  const importedData = require('./phrases');
+  // Проверяем, массив это или объект libraryData
+  if (Array.isArray(importedData)) {
+    phrases = importedData;
+  } else if (importedData && Array.isArray(importedData.phrases)) {
+    phrases = importedData.phrases;
+  }
 } catch (e) {
-  console.warn("Файл phrases.js не найден или содержит ошибку. Инициализированы базовые фразы.");
+  console.warn("Ошибка загрузки phrases.js, используются запасные фразы.");
+}
+
+// Резервный список на случай пустых данных
+if (!phrases || phrases.length === 0) {
   phrases = [
-    { id: '1', en: 'Apple', ru: 'Яблоко' },
-    { id: '2', en: 'Cat', ru: 'Кошка' },
-    { id: '3', en: 'Dog', ru: 'Собака' },
-    { id: '4', en: 'House', ru: 'Дом' },
-    { id: '5', en: 'Water', ru: 'Вода' }
+    { id: "p1", en: "Hello!", ru: "Здравствуйте!" },
+    { id: "p2", en: "Hi!", ru: "Привет!" },
+    { id: "p202", en: "gear stick", ru: "рычаг переключения скоростей" }
   ];
 }
 
@@ -54,7 +62,7 @@ function getRandomColor() {
 
 function getRandomPhrase() {
   if (!phrases || phrases.length === 0) {
-    return { id: 'default', en: 'Hello', ru: 'Привет' };
+    return { id: "default", en: "Hello!", ru: "Привет!" };
   }
   return phrases[Math.floor(Math.random() * phrases.length)];
 }
@@ -213,7 +221,6 @@ setInterval(() => {
 }, 60000);
 
 io.on('connection', (socket) => {
-  console.log('Новое подключение:', socket.id);
   const initialPhrase = getRandomPhrase();
   
   players[socket.id] = {
