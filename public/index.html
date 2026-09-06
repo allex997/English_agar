@@ -67,8 +67,6 @@
     }
     .modal-title { font-size: 24px; color: #38bdf8; margin-bottom: 15px; }
 
-    .btn-group { display: flex; flex-direction: column; gap: 15px; margin-top: 15px; }
-
     .btn {
       padding: 14px; background: #0284c7; color: #ffffff; border: none;
       border-radius: 12px; font-weight: bold; cursor: pointer; font-size: 16px;
@@ -101,6 +99,10 @@
     <div id="round-timer-container" style="display: none; color: #fabe2c; align-items: center; gap: 4px;">
       ⏱ <span id="round-timer">25</span>s
     </div>
+    <!-- Индикатор работы локатора/подсказки -->
+    <div id="hint2-timer-container" style="display: none; color: #a855f7; align-items: center; gap: 4px;">
+      🧭 <span id="hint2-timer">20</span>s
+    </div>
     <span>Счёт: <span id="score">0</span></span>
   </div>
 
@@ -112,9 +114,10 @@
     </ul>
   </div>
 
-  <!-- Панель способностей -->
+  <!-- Панель способностей магазина -->
   <div id="abilities-bar">
     <button class="ability-btn" id="btn-speed">⚡ Ускорение (40 очков)</button>
+    <button class="ability-btn" id="btn-locator">🧭 Локатор (20 очков)</button>
     <button class="ability-btn" id="btn-player-radar">🎯 Найти игрока (35 очков)</button>
   </div>
 

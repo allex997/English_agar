@@ -1,4 +1,4 @@
-// public/game.js - Исправленный файл с полной поддержкой событий сервера и входом
+// public/game.js
 
 const socket = io();
 
@@ -61,6 +61,7 @@ if (startGameBtn) {
 // --- Кнопки способностей ---
 const btnSpeed = document.getElementById('btn-speed');
 const btnPlayerRadar = document.getElementById('btn-player-radar');
+const btnLocator = document.getElementById('btn-locator'); // Объявление добавлено
 
 if (btnSpeed) {
   btnSpeed.addEventListener('click', () => {
@@ -164,7 +165,7 @@ socket.on('roundTick', (data) => {
   }
 });
 
-// Завершение всей игры (при наборе 400 очков)
+// Завершение всей игры
 socket.on('gameOver', (data) => {
   const modal = document.getElementById('game-over-modal');
   const winnerTitle = document.getElementById('winner-title');
