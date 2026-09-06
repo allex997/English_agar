@@ -237,47 +237,66 @@ io.on('connection', (socket) => {
   });
 
   socket.on('useAbility', (data) => {
-    const p = players[socket.id];
-    if (!p || isGameOver) return;
+  const p = players[socket.id];
+  if (!p || isGameOver) return;
 
-    if (data.type === 'speed') {
-      if (p.hasBoughtSpeed) return;
-      if (p.score >= 40) {
-        p.score -= 40;
-        p.hasBoughtSpeed = true;
-        p.speed = 0.16;
-        io.to(socket.id).emit('floatingText', { x: p.x, y: p.y, text: "⚡ Ускорение куплено!", color: "#38bdf8" });
-      }
-    } else if (data.type === 'locator_friend') {
-      // 5. Локатор для поиска близлежащего игрока
-      if (p.score >= 30) {
-        let nearestFriend = null;
-        let minDist = Infinity;
+  // Покупка Ускорения (40 очков)
+  if (data.type === 'speed') {
+    if (p.hasBoughtSpeed) return;
+    if (p.score >= 40) {
+      p.score -= 40;
+      p.hasBoughtSpeed = true;
+      p.speed = 0.16;
+      io.to(socket.id).emit('floatingText', { x: p.x, y: p.y, text: "⚡ Ускорение куплено!", color: "#38bdf8" });
+    } else {
+      io.to(socket.id).emit('floatingText', { x: p.x, y: p.y, text: "Нужно 40 очков!", color: "#ff4b5c" });
+    }
+  } 
+  
+  // Покупка Локатора Ближайшего Игрока (например, за 35 очков)
+  else if (data.type === 'radar_player') {
+    const COST = 35; // Стоимость подсказки в очках
 
-        Object.values(players).forEach(other => {
-          if (other.id !== p.id) {
-            let d = Math.hypot(p.x - other.x, p.y - other.y);
-            if (d < minDist) {
-              minDist = d;
-              nearestFriend = other;
-            }
-          }
-        });
+    if (p.score < COST) {
+      io.to(socket.id).emit('floatingText', { x: p.x, y: p.y, text: `Нужно ${COST} очков!`, color: "#ff4b5c" });
+      return;
+    }
 
-        if (nearestFriend) {
-          p.score -= 30;
-          io.to(socket.id).emit('activateLocator', { x: nearestFriend.x, y: nearestFriend.y });
-          io.to(socket.id).emit('floatingText', { x: p.x, y: p.y, text: `🧭 Друг ${nearestFriend.name} найден!`, color: "#a855f7" });
-        } else {
-          io.to(socket.id).emit('floatingText', { x: p.x, y: p.y, text: "Других игроков нет!", color: "#ff4b5c" });
+    // Ищем ближайшего другого игрока
+    let nearestPlayer = null;
+    let minDist = Infinity;
+
+    Object.values(players).forEach(other => {
+      if (other.id !== p.id) {
+        let dist = Math.hypot(p.x - other.x, p.y - other.y);
+        if (dist < minDist) {
+          minDist = dist;
+          nearestPlayer = other;
         }
       }
-    }
-  });
+    });
 
-  socket.on('disconnect', () => {
-    delete players[socket.id];
-  });
+    if (nearestPlayer) {
+      // Снимаем очки за покупку
+      p.score -= COST;
+
+      // Отправляем игроку координаты найденного противника (как в подсказке 2)
+      io.to(socket.id).emit('activateLocator', { 
+        x: nearestPlayer.x, 
+        y: nearestPlayer.y,
+        label: `Игрок: ${nearestPlayer.name}`
+      });
+
+      io.to(socket.id).emit('floatingText', { 
+        x: p.x, 
+        y: p.y, 
+        text: `🎯 Локация игрока найденa! (-${COST} очков)`, 
+        color: "#a855f7" 
+      });
+    } else {
+      io.to(socket.id).emit('floatingText', { x: p.x, y: p.y, text: "На карте нет других игроков!", color: "#ff4b5c" });
+    }
+  }
 });
 
 // Игровой цикл (60 FPS)

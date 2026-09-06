@@ -31,7 +31,6 @@
       z-index: 10; border: 1px solid rgba(255, 255, 255, 0.15); display: flex; gap: 15px; align-items: center;
     }
 
-    /* Таблица рекордов (Leaderboard) */
     #leaderboard {
       position: absolute; top: 20px; right: 20px;
       background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(12px);
@@ -77,12 +76,11 @@
     }
     .btn:hover { background: #0369a1; }
     .btn-full { width: 100%; }
-    .btn-secondary { background: #475569; color: #fff; }
-    .btn-secondary:hover { background: #334155; }
   </style>
 </head>
 <body>
 
+  <!-- Экран входа -->
   <div id="login-overlay" style="position: fixed; inset: 0; background: #0f172a; z-index: 1000; display: flex; justify-content: center; align-items: center;">
     <div style="background: #1e293b; padding: 30px; border-radius: 16px; width: 340px; text-align: center; border: 1px solid rgba(255, 255, 255, 0.2);">
       <h2 style="margin-bottom: 20px; color: #38bdf8;">Вход в игру</h2>
@@ -91,22 +89,22 @@
     </div>
   </div>
 
+  <!-- Шапка задания -->
   <div id="ui-header">
     <div id="target-label">Найди перевод:</div>
     <div id="target-word">Загрузка...</div>
     <div id="speed-mode-badge">⚡ Кто быстрее</div>
   </div>
 
+  <!-- Информационная панель -->
   <div id="score-board">
     <div id="round-timer-container" style="display: none; color: #fabe2c; align-items: center; gap: 4px;">
       ⏱ <span id="round-timer">25</span>s
     </div>
-    <div id="hint2-timer-container" style="display: none; align-items: center; gap: 6px; color: #c084fc;">
-      🧭 <span id="hint2-timer">20</span>s
-    </div>
     <span>Счёт: <span id="score">0</span></span>
   </div>
 
+  <!-- Лидерборд -->
   <div id="leaderboard">
     <h3>🏆 Топ игроков</h3>
     <ul id="leaderboard-list">
@@ -114,24 +112,20 @@
     </ul>
   </div>
 
+  <!-- Панель способностей -->
   <div id="abilities-bar">
     <button class="ability-btn" id="btn-speed">⚡ Ускорение (40 очков)</button>
-    <button class="ability-btn" id="btn-audio">💡 Произношение (30 очков)</button>
-    <button class="ability-btn" id="btn-locator">🧭 Локатор слова (50 очков)</button>
-    <button class="ability-btn" id="btn-friends">👥 Помощь друга</button>
+    <button class="ability-btn" id="btn-player-radar">🎯 Найти игрока (35 очков)</button>
   </div>
 
   <canvas id="gameCanvas"></canvas>
 
-  <div id="friends-modal" class="modal">
+  <!-- Модальное окно завершения раунда -->
+  <div id="game-over-modal" class="modal">
     <div class="modal-content">
-      <h2 class="modal-title">Подсказка от друзей</h2>
-      <p style="font-size: 14px; color: #94a3b8; margin-bottom: 15px;">Введите никнейм друга для запроса помощи:</p>
-      <input type="text" id="friend-nickname-input" placeholder="Никнейм друга" style="width: 100%; padding: 12px; margin-bottom: 15px; border-radius: 8px; border: 1px solid #334155; background: #0f172a; color: #fff; font-size: 16px; outline: none;">
-      <div class="btn-group">
-        <button id="send-friend-hint-btn" class="btn btn-full">Запросить помощь</button>
-        <button class="btn btn-secondary btn-back btn-full">Закрыть</button>
-      </div>
+      <h2 class="modal-title" id="winner-title">🎉 Победитель!</h2>
+      <div id="game-over-leaderboard" style="margin-bottom: 20px; text-align: left;"></div>
+      <p style="font-size: 14px; color: #94a3b8;">Новый раунд начнется автоматически через несколько секунд...</p>
     </div>
   </div>
 

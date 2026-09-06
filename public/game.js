@@ -1,4 +1,4 @@
-// public/game.js - Плавное сглаживание и обновление таблицы лидеров
+// public/game.js - Исправленный файл с полной поддержкой событий сервера и входом
 
 const socket = io();
 
@@ -45,6 +45,35 @@ window.addEventListener('touchmove', (e) => {
   }
 }, { passive: true });
 
+// --- Вход в игру ---
+const startGameBtn = document.getElementById('start-game-btn');
+const usernameInput = document.getElementById('username-input');
+const loginOverlay = document.getElementById('login-overlay');
+
+if (startGameBtn) {
+  startGameBtn.addEventListener('click', () => {
+    const name = usernameInput ? usernameInput.value.trim() : '';
+    socket.emit('setNickname', name || 'Игрок');
+    if (loginOverlay) loginOverlay.style.display = 'none';
+  });
+}
+
+// --- Кнопки способностей ---
+const btnSpeed = document.getElementById('btn-speed');
+const btnPlayerRadar = document.getElementById('btn-player-radar');
+
+if (btnSpeed) {
+  btnSpeed.addEventListener('click', () => {
+    socket.emit('useAbility', { type: 'speed' });
+  });
+}
+
+if (btnPlayerRadar) {
+  btnPlayerRadar.addEventListener('click', () => {
+    socket.emit('useAbility', { type: 'radar_player' });
+  });
+}
+
 function speakEnText(text) {
   if (!('speechSynthesis' in window)) return;
   window.speechSynthesis.cancel();
@@ -81,7 +110,8 @@ function updateLeaderboard() {
   });
 }
 
-// Socket Events
+// --- Socket Events ---
+
 socket.on('init', (data) => {
   myId = data.id;
   worldWidth = data.worldWidth;
@@ -91,16 +121,28 @@ socket.on('init', (data) => {
   updateQuestionUI(data.currentPhrase, data.isSpeedMode);
 });
 
-socket.on('newQuestion', (data) => {
+// Новая индивидуальная фраза при правильном ответе
+socket.on('newIndividualPhrase', (data) => {
   resetHint2();
-  
-  const phrase = data.phrase || data;
-  const isSpeedMode = !!data.isSpeedMode;
-  
-  updateQuestionUI(phrase, isSpeedMode);
+  updateQuestionUI(data.phrase, false);
+});
 
-  if (isSpeedMode) {
-    addFloatingText(localPlayerPos.x, localPlayerPos.y - 120, "⚡ РЕЖИМ НА СКОРОСТЬ!", "#fabe2c");
+// Начало события "Режим скорости"
+socket.on('eventStarted', (data) => {
+  resetHint2();
+  updateQuestionUI(data.phrase, true);
+  addFloatingText(localPlayerPos.x, localPlayerPos.y - 120, "⚡ РЕЖИМ НА СКОРОСТЬ!", "#fabe2c");
+});
+
+// Окончание режима скорости
+socket.on('eventEnded', () => {
+  const speedBadgeEl = document.getElementById('speed-mode-badge');
+  if (speedBadgeEl) speedBadgeEl.style.display = 'none';
+  const roundTimerContainer = document.getElementById('round-timer-container');
+  if (roundTimerContainer) roundTimerContainer.style.display = 'none';
+
+  if (players[myId] && players[myId].currentPhrase) {
+    updateQuestionUI(players[myId].currentPhrase, false);
   }
 });
 
@@ -116,15 +158,30 @@ socket.on('roundTick', (data) => {
   }
 });
 
-socket.on('roundWinner', (data) => {
-  if (players[myId]) {
-    addFloatingText(
-      localPlayerPos.x, 
-      localPlayerPos.y - 80, 
-      `🏆 ${data.winnerName} отгадал: "${data.phrase}"!`, 
-      "#38ef7d"
-    );
+// Завершение всей игры (при наборе 400 очков)
+socket.on('gameOver', (data) => {
+  const modal = document.getElementById('game-over-modal');
+  const winnerTitle = document.getElementById('winner-title');
+  const boardEl = document.getElementById('game-over-leaderboard');
+
+  if (winnerTitle) winnerTitle.innerText = `🎉 Победитель: ${data.winner}!`;
+  
+  if (boardEl && data.leaderBoard) {
+    let listHtml = '<ol style="padding-left: 20px; line-height: 1.8;">';
+    data.leaderBoard.forEach(p => {
+      listHtml += `<li><b>${p.name}</b>: ${p.score} очков</li>`;
+    });
+    listHtml += '</ol>';
+    boardEl.innerHTML = listHtml;
   }
+  
+  if (modal) modal.style.display = 'flex';
+});
+
+socket.on('gameRestarted', () => {
+  const modal = document.getElementById('game-over-modal');
+  if (modal) modal.style.display = 'none';
+  resetHint2();
 });
 
 socket.on('gameState', (state) => {
@@ -226,7 +283,7 @@ function drawLocatorArrow(ctx, screenCenterX, screenCenterY, angle) {
 }
 
 function update() {
-  // Плавная сглаженная интерполяция движений локального и других игроков
+  // Плавная сглаженная интерполяция движений игроков
   Object.keys(players).forEach(id => {
     const serverP = players[id];
     if (!renderPlayers[id]) {
