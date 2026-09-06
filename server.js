@@ -114,9 +114,7 @@ function fillMapWithFood() {
 }
 
 function addTargetFoodForPlayer(phrase) {
-  // 1. Обычный видимый вариант
   foodItems.push(createFoodItem(phrase, true, 0, false));
-  // 2. Вариант в аудио-биоме (не привязан к позиции игрока)
   foodItems.push(createFoodItem(phrase, true, 0, true));
 }
 
@@ -213,7 +211,6 @@ io.on('connection', (socket) => {
     currentPhrase: initialPhrase
   };
 
-  // Добавляем цели для индивидуального режима
   addTargetFoodForPlayer(initialPhrase);
 
   socket.emit('init', {
@@ -237,66 +234,64 @@ io.on('connection', (socket) => {
   });
 
   socket.on('useAbility', (data) => {
-  const p = players[socket.id];
-  if (!p || isGameOver) return;
+    const p = players[socket.id];
+    if (!p || isGameOver) return;
 
-  // Покупка Ускорения (40 очков)
-  if (data.type === 'speed') {
-    if (p.hasBoughtSpeed) return;
-    if (p.score >= 40) {
-      p.score -= 40;
-      p.hasBoughtSpeed = true;
-      p.speed = 0.16;
-      io.to(socket.id).emit('floatingText', { x: p.x, y: p.y, text: "⚡ Ускорение куплено!", color: "#38bdf8" });
-    } else {
-      io.to(socket.id).emit('floatingText', { x: p.x, y: p.y, text: "Нужно 40 очков!", color: "#ff4b5c" });
-    }
-  } 
-  
-  // Покупка Локатора Ближайшего Игрока (например, за 35 очков)
-  else if (data.type === 'radar_player') {
-    const COST = 35; // Стоимость подсказки в очках
-
-    if (p.score < COST) {
-      io.to(socket.id).emit('floatingText', { x: p.x, y: p.y, text: `Нужно ${COST} очков!`, color: "#ff4b5c" });
-      return;
-    }
-
-    // Ищем ближайшего другого игрока
-    let nearestPlayer = null;
-    let minDist = Infinity;
-
-    Object.values(players).forEach(other => {
-      if (other.id !== p.id) {
-        let dist = Math.hypot(p.x - other.x, p.y - other.y);
-        if (dist < minDist) {
-          minDist = dist;
-          nearestPlayer = other;
-        }
+    if (data.type === 'speed') {
+      if (p.hasBoughtSpeed) return;
+      if (p.score >= 40) {
+        p.score -= 40;
+        p.hasBoughtSpeed = true;
+        p.speed = 0.16;
+        io.to(socket.id).emit('floatingText', { x: p.x, y: p.y, text: "⚡ Ускорение куплено!", color: "#38bdf8" });
+      } else {
+        io.to(socket.id).emit('floatingText', { x: p.x, y: p.y, text: "Нужно 40 очков!", color: "#ff4b5c" });
       }
-    });
+    } 
+    else if (data.type === 'radar_player' || data.type === 'locator') {
+      const COST = 35;
 
-    if (nearestPlayer) {
-      // Снимаем очки за покупку
-      p.score -= COST;
+      if (p.score < COST) {
+        io.to(socket.id).emit('floatingText', { x: p.x, y: p.y, text: `Нужно ${COST} очков!`, color: "#ff4b5c" });
+        return;
+      }
 
-      // Отправляем игроку координаты найденного противника (как в подсказке 2)
-      io.to(socket.id).emit('activateLocator', { 
-        x: nearestPlayer.x, 
-        y: nearestPlayer.y,
-        label: `Игрок: ${nearestPlayer.name}`
+      let nearestPlayer = null;
+      let minDist = Infinity;
+
+      Object.values(players).forEach(other => {
+        if (other.id !== p.id) {
+          let dist = Math.hypot(p.x - other.x, p.y - other.y);
+          if (dist < minDist) {
+            minDist = dist;
+            nearestPlayer = other;
+          }
+        }
       });
 
-      io.to(socket.id).emit('floatingText', { 
-        x: p.x, 
-        y: p.y, 
-        text: `🎯 Локация игрока найденa! (-${COST} очков)`, 
-        color: "#a855f7" 
-      });
-    } else {
-      io.to(socket.id).emit('floatingText', { x: p.x, y: p.y, text: "На карте нет других игроков!", color: "#ff4b5c" });
+      if (nearestPlayer) {
+        p.score -= COST;
+        io.to(socket.id).emit('activateLocator', { 
+          x: nearestPlayer.x, 
+          y: nearestPlayer.y,
+          label: `Игрок: ${nearestPlayer.name}`
+        });
+
+        io.to(socket.id).emit('floatingText', { 
+          x: p.x, 
+          y: p.y, 
+          text: `🎯 Локация игрока найдена! (-${COST} очков)`, 
+          color: "#a855f7" 
+        });
+      } else {
+        io.to(socket.id).emit('floatingText', { x: p.x, y: p.y, text: "На карте нет других игроков!", color: "#ff4b5c" });
+      }
     }
-  }
+  });
+
+  socket.on('disconnect', () => {
+    delete players[socket.id];
+  });
 });
 
 // Игровой цикл (60 FPS)
@@ -305,7 +300,7 @@ setInterval(() => {
 
   const playerList = Object.values(players);
 
-  // Движение игроков и проверка съедения других игроков (1)
+  // Движение игроков и столкновения
   playerList.forEach(p => {
     p.x += (p.targetX - p.x) * p.speed;
     p.y += (p.targetY - p.y) * p.speed;
@@ -313,7 +308,6 @@ setInterval(() => {
     p.x = Math.max(p.radius, Math.min(WORLD_WIDTH - p.radius, p.x));
     p.y = Math.max(p.radius, Math.min(WORLD_HEIGHT - p.radius, p.y));
 
-    // Поедание игроков при разнице >= 50 очков
     playerList.forEach(other => {
       if (p.id !== other.id && p.score >= other.score + 50) {
         let dist = Math.hypot(p.x - other.x, p.y - other.y);
@@ -335,9 +329,10 @@ setInterval(() => {
     });
   });
 
-  // Проверка поедания шариков (6)
+  // Проверка поедания шариков
   for (let i = foodItems.length - 1; i >= 0; i--) {
     let food = foodItems[i];
+    if (!food) continue;
 
     food.x += food.vx;
     food.y += food.vy;
@@ -345,12 +340,13 @@ setInterval(() => {
     if (food.x - food.radius < 0 || food.x + food.radius > WORLD_WIDTH) food.vx *= -1;
     if (food.y - food.radius < 0 || food.y + food.radius > WORLD_HEIGHT) food.vy *= -1;
 
-    playerList.forEach(p => {
+    let foodEaten = false;
+
+    for (let p of playerList) {
       let dx = p.x - food.x;
       let dy = p.y - food.y;
       let distance = Math.hypot(dx, dy);
 
-      // Логика звуковых биомов
       if (food.inAudioBiome) {
         if (distance < food.audioTriggerRadius && !food.audioTriggeredPlayers[p.id]) {
           food.audioTriggeredPlayers[p.id] = true;
@@ -360,19 +356,14 @@ setInterval(() => {
         }
       }
 
-      // Касание шарика
       if (distance < p.radius + food.radius) {
         let activeTargetPhrase = isSpeedMode ? globalSpeedPhrase : p.currentPhrase;
 
         if (food.phraseData.id === activeTargetPhrase.id) {
-          // ПРАВИЛЬНЫЙ ОТВЕТ
           p.score += isSpeedMode ? 25 : 10;
           p.radius += 2;
 
           io.to(p.id).emit('floatingText', { x: food.x, y: food.y, text: "Верно! +10", color: "#38ef7d" });
-          
-          // Лопаем съеденный шарик и локально спавним новую пару целей
-          foodItems.splice(i, 1);
           
           if (!isSpeedMode) {
             p.currentPhrase = getRandomPhrase();
@@ -382,20 +373,23 @@ setInterval(() => {
 
           checkWinCondition(p);
         } else {
-          // НЕПРАВИЛЬНЫЙ ОТВЕТ
           p.score = Math.max(0, p.score - 5);
           p.radius = Math.max(p.baseRadius, p.radius - 1);
           io.to(p.id).emit('floatingText', { x: food.x, y: food.y, text: "Ошибка! -5", color: "#ff4b5c" });
 
-          // Лопаем ошибочный шарик и заменяем его новым обычным
-          foodItems.splice(i, 1);
           foodItems.push(createFoodItem(getRandomPhrase(), false));
         }
+
+        foodEaten = true;
+        break;
       }
-    });
+    }
+
+    if (foodEaten) {
+      foodItems.splice(i, 1);
+    }
   }
 
-  // Поддержание минимального числа шариков на карте
   fillMapWithFood();
 }, 1000 / 60);
 
